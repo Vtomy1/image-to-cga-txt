@@ -1,0 +1,6 @@
+{
+  "name": "CGA 2-Bit Digits Ditherer",
+  "description": "Convert images into 2-bit 4-color CGA palette digits at 320x200 with error diffusion and ordered dithering, and download the raw digit matrix as TXT.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
