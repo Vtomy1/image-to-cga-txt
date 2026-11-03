@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Header } from './components/Header';
 import { ViewportCanvas } from './components/ViewportCanvas';
 import { ControlsPanel } from './components/ControlsPanel';
+import { ColorDistributionWidget } from './components/ColorDistributionWidget';
 import { TextExportModal } from './components/TextExportModal';
 import { CGA_PALETTES } from './constants/palettes';
 import { getSampleImages } from './constants/samples';
@@ -254,6 +255,9 @@ export default function App() {
               onResetAdjustments={handleResetAdjustments}
               result={result}
             />
+
+            {/* Live 4-Color CGA Distribution & Dithering Optimization Widget */}
+            <ColorDistributionWidget result={result} />
           </div>
         </div>
       </main>
