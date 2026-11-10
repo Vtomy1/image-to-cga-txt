@@ -232,6 +232,7 @@ export default function App() {
             <ViewportCanvas
               result={result}
               sourceImage={sourceImage}
+              fitMode={fitMode}
               crtEffect={crtEffect}
               onToggleCrt={() => setCrtEffect(!crtEffect)}
               showPixelGrid={showPixelGrid}

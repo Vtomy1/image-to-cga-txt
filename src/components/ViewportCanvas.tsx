@@ -9,13 +9,15 @@ import {
   Hash,
   Eye,
   Info,
+  ArrowLeftRight,
 } from 'lucide-react';
-import { ProcessingResult } from '../types';
+import { FitMode, ProcessingResult } from '../types';
 import { CGA_HEIGHT, CGA_WIDTH } from '../utils/cgaDither';
 
 interface ViewportCanvasProps {
   result: ProcessingResult | null;
   sourceImage: HTMLImageElement | null;
+  fitMode?: FitMode;
   crtEffect: boolean;
   onToggleCrt: () => void;
   showPixelGrid: boolean;
@@ -29,6 +31,7 @@ export type ViewMode = 'cga' | 'split' | 'digits';
 export const ViewportCanvas: React.FC<ViewportCanvasProps> = ({
   result,
   sourceImage,
+  fitMode = 'fit',
   crtEffect,
   onToggleCrt,
   showPixelGrid,
@@ -37,10 +40,12 @@ export const ViewportCanvas: React.FC<ViewportCanvasProps> = ({
   onToggleAspectRatio,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const originalCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const splitOriginalCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const [viewMode, setViewMode] = useState<ViewMode>('cga');
+  const [showOriginal, setShowOriginal] = useState<boolean>(false);
   const [zoom, setZoom] = useState<number>(2.5);
   const [splitPos, setSplitPos] = useState<number>(50); // percentage 0 to 100
   const [isDraggingSplit, setIsDraggingSplit] = useState<boolean>(false);
@@ -52,9 +57,45 @@ export const ViewportCanvas: React.FC<ViewportCanvasProps> = ({
     digit: number;
     colorName: string;
     hex: string;
+    origRgb: [number, number, number] | null;
   } | null>(null);
 
-  // Render processed 320x200 ImageData onto the main canvas
+  // Helper to draw the fitted source image onto an arbitrary 320x200 canvas
+  const drawFittedImage = useCallback(
+    (ctx: CanvasRenderingContext2D, image: HTMLImageElement, fit: FitMode) => {
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, CGA_WIDTH, CGA_HEIGHT);
+
+      const sourceWidth = image.naturalWidth || image.width;
+      const sourceHeight = image.naturalHeight || image.height;
+
+      let destX = 0;
+      let destY = 0;
+      let destW = CGA_WIDTH;
+      let destH = CGA_HEIGHT;
+
+      if (fit === 'fit') {
+        const scale = Math.min(CGA_WIDTH / sourceWidth, CGA_HEIGHT / sourceHeight);
+        destW = Math.round(sourceWidth * scale);
+        destH = Math.round(sourceHeight * scale);
+        destX = Math.round((CGA_WIDTH - destW) / 2);
+        destY = Math.round((CGA_HEIGHT - destH) / 2);
+      } else if (fit === 'cover') {
+        const scale = Math.max(CGA_WIDTH / sourceWidth, CGA_HEIGHT / sourceHeight);
+        destW = Math.round(sourceWidth * scale);
+        destH = Math.round(sourceHeight * scale);
+        destX = Math.round((CGA_WIDTH - destW) / 2);
+        destY = Math.round((CGA_HEIGHT - destH) / 2);
+      }
+
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(image, destX, destY, destW, destH);
+    },
+    []
+  );
+
+  // Render processed 320x200 ImageData onto the main CGA canvas
   useEffect(() => {
     if (!result || !canvasRef.current) return;
     const canvas = canvasRef.current;
@@ -64,25 +105,65 @@ export const ViewportCanvas: React.FC<ViewportCanvasProps> = ({
     ctx.putImageData(result.imageData, 0, 0);
   }, [result]);
 
-  // Render scaled original for split view comparison
+  // Render fitted original image for Compare toggle canvas and Split view canvas
   useEffect(() => {
-    if (!sourceImage || !splitOriginalCanvasRef.current) return;
-    const canvas = splitOriginalCanvasRef.current;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!sourceImage) return;
 
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, CGA_WIDTH, CGA_HEIGHT);
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(sourceImage, 0, 0, CGA_WIDTH, CGA_HEIGHT);
-  }, [sourceImage]);
+    // Full Original compare canvas
+    if (originalCanvasRef.current) {
+      const origCtx = originalCanvasRef.current.getContext('2d');
+      if (origCtx) {
+        drawFittedImage(origCtx, sourceImage, fitMode);
+      }
+    }
+
+    // Split view original canvas
+    if (splitOriginalCanvasRef.current) {
+      const splitCtx = splitOriginalCanvasRef.current.getContext('2d');
+      if (splitCtx) {
+        drawFittedImage(splitCtx, sourceImage, fitMode);
+      }
+    }
+  }, [sourceImage, fitMode, drawFittedImage]);
+
+  // Quick Compare toggle handler
+  const handleToggleCompare = useCallback(() => {
+    setShowOriginal((prev) => !prev);
+  }, []);
+
+  // Keyboard shortcut listener: Spacebar or 'C' key toggles Compare
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const active = document.activeElement;
+      if (
+        active &&
+        (active.tagName === 'INPUT' ||
+          active.tagName === 'TEXTAREA' ||
+          active.tagName === 'SELECT' ||
+          (active as HTMLElement).isContentEditable)
+      ) {
+        return;
+      }
+
+      if (e.code === 'Space' || e.key === 'c' || e.key === 'C') {
+        e.preventDefault();
+        setShowOriginal((prev) => !prev);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Handle canvas mouse move for pixel coordinate inspection
   const handleCanvasMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!result || !canvasRef.current) return;
+    if (!result) return;
+    const activeCanvas = showOriginal
+      ? originalCanvasRef.current
+      : canvasRef.current;
+    if (!activeCanvas) return;
 
-    const rect = canvasRef.current.getBoundingClientRect();
+    const rect = activeCanvas.getBoundingClientRect();
     const clientX = e.clientX - rect.left;
     const clientY = e.clientY - rect.top;
 
@@ -103,12 +184,28 @@ export const ViewportCanvas: React.FC<ViewportCanvasProps> = ({
       const idx = y * CGA_WIDTH + x;
       const digit = result.digits[idx];
       const color = result.palette.colors[digit];
+
+      // Sample original pixel RGB from originalCanvas if available
+      let origRgb: [number, number, number] | null = null;
+      if (originalCanvasRef.current) {
+        const origCtx = originalCanvasRef.current.getContext('2d');
+        if (origCtx) {
+          try {
+            const pixelData = origCtx.getImageData(x, y, 1, 1).data;
+            origRgb = [pixelData[0], pixelData[1], pixelData[2]];
+          } catch {
+            // Silently handle if canvas context is not ready
+          }
+        }
+      }
+
       setHoverPixel({
         x,
         y,
         digit,
         colorName: color?.name ?? 'Unknown',
         hex: color?.hex ?? '#000000',
+        origRgb,
       });
     }
   };
@@ -158,44 +255,87 @@ export const ViewportCanvas: React.FC<ViewportCanvasProps> = ({
     >
       {/* Viewport Top Bar / View Modes & Controls */}
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-neutral-900/80 border-b border-neutral-800 text-xs font-mono">
-        {/* Left: View Mode Tabs */}
-        <div className="flex items-center gap-1 bg-neutral-950 p-0.5 rounded-lg border border-neutral-800">
+        {/* Left: View Mode Tabs & Compare Toggle Button */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {/* View Modes */}
+          <div className="flex items-center gap-0.5 bg-neutral-950 p-0.5 rounded-lg border border-neutral-800">
+            <button
+              id="view-mode-cga"
+              onClick={() => {
+                setViewMode('cga');
+                setShowOriginal(false);
+              }}
+              className={`px-2.5 py-1 rounded flex items-center gap-1.5 transition-all ${
+                !showOriginal && viewMode === 'cga'
+                  ? 'bg-cyan-950 text-cyan-300 font-semibold border border-cyan-800'
+                  : 'text-neutral-400 hover:text-neutral-200'
+              }`}
+              title="View full 320×200 2-bit CGA dithered result"
+            >
+              <Eye className="w-3.5 h-3.5" />
+              <span>2-Bit CGA</span>
+            </button>
+            <button
+              id="view-mode-split"
+              onClick={() => {
+                setViewMode('split');
+                setShowOriginal(false);
+              }}
+              className={`px-2.5 py-1 rounded flex items-center gap-1.5 transition-all ${
+                !showOriginal && viewMode === 'split'
+                  ? 'bg-cyan-950 text-cyan-300 font-semibold border border-cyan-800'
+                  : 'text-neutral-400 hover:text-neutral-200'
+              }`}
+              title="Interactive split-screen slider (Original vs 2-Bit CGA)"
+            >
+              <Columns className="w-3.5 h-3.5" />
+              <span>Split Slider</span>
+            </button>
+            <button
+              id="view-mode-digits"
+              onClick={() => {
+                setViewMode('digits');
+                setShowOriginal(false);
+              }}
+              className={`px-2.5 py-1 rounded flex items-center gap-1.5 transition-all ${
+                !showOriginal && viewMode === 'digits'
+                  ? 'bg-cyan-950 text-cyan-300 font-semibold border border-cyan-800'
+                  : 'text-neutral-400 hover:text-neutral-200'
+              }`}
+              title="Inspect 0, 1, 2, 3 digits matrix"
+            >
+              <Hash className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Digits Matrix</span>
+            </button>
+          </div>
+
+          {/* Quick Compare Toggle Button */}
           <button
-            id="view-mode-cga"
-            onClick={() => setViewMode('cga')}
-            className={`px-2.5 py-1 rounded flex items-center gap-1.5 transition-all ${
-              viewMode === 'cga'
-                ? 'bg-cyan-950 text-cyan-300 font-semibold border border-cyan-800'
-                : 'text-neutral-400 hover:text-neutral-200'
+            id="btn-toggle-compare"
+            onClick={handleToggleCompare}
+            title="Toggle quickly between Original Source Image and 2-Bit CGA (Hotkey: Spacebar or C)"
+            className={`px-3 py-1 rounded-lg flex items-center gap-1.5 transition-all text-xs font-mono font-semibold border cursor-pointer ${
+              showOriginal
+                ? 'bg-amber-950 text-amber-300 border-amber-500 shadow-md shadow-amber-950/50 ring-1 ring-amber-400'
+                : 'bg-neutral-950 text-neutral-300 border-neutral-800 hover:text-white hover:border-neutral-700'
             }`}
           >
-            <Eye className="w-3.5 h-3.5" />
-            <span>2-Bit CGA</span>
-          </button>
-          <button
-            id="view-mode-split"
-            onClick={() => setViewMode('split')}
-            className={`px-2.5 py-1 rounded flex items-center gap-1.5 transition-all ${
-              viewMode === 'split'
-                ? 'bg-cyan-950 text-cyan-300 font-semibold border border-cyan-800'
-                : 'text-neutral-400 hover:text-neutral-200'
-            }`}
-          >
-            <Columns className="w-3.5 h-3.5" />
-            <span>Split Compare</span>
-          </button>
-          <button
-            id="view-mode-digits"
-            onClick={() => setViewMode('digits')}
-            className={`px-2.5 py-1 rounded flex items-center gap-1.5 transition-all ${
-              viewMode === 'digits'
-                ? 'bg-cyan-950 text-cyan-300 font-semibold border border-cyan-800'
-                : 'text-neutral-400 hover:text-neutral-200'
-            }`}
-            title="Inspect 0, 1, 2, 3 digits matrix"
-          >
-            <Hash className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Digits Matrix</span>
+            <ArrowLeftRight
+              className={`w-3.5 h-3.5 transition-transform ${
+                showOriginal ? 'text-amber-400 rotate-180' : 'text-cyan-400'
+              }`}
+            />
+            <span>Compare:</span>
+            <span
+              className={
+                showOriginal ? 'text-amber-300 font-bold' : 'text-cyan-300'
+              }
+            >
+              {showOriginal ? 'ORIGINAL' : '2-BIT CGA'}
+            </span>
+            <span className="hidden sm:inline-block text-[9px] text-neutral-400 bg-neutral-900 border border-neutral-750 px-1 py-0.2 rounded font-normal">
+              Space
+            </span>
           </button>
         </div>
 
@@ -297,7 +437,7 @@ export const ViewportCanvas: React.FC<ViewportCanvasProps> = ({
             transformOrigin: 'center center',
           }}
         >
-          {/* Main 320x200 Canvas */}
+          {/* Main 320x200 Canvas (2-Bit CGA) */}
           <canvas
             ref={canvasRef}
             id="cga-main-canvas"
@@ -305,15 +445,50 @@ export const ViewportCanvas: React.FC<ViewportCanvasProps> = ({
             height={CGA_HEIGHT}
             className={`pixelated block transition-all ${
               showPixelGrid ? 'outline outline-1 outline-neutral-700/50' : ''
-            }`}
+            } ${showOriginal ? 'hidden' : 'block'}`}
             style={{
               width: `${CGA_WIDTH * zoom}px`,
               height: `${CGA_HEIGHT * zoom}px`,
             }}
           />
 
-          {/* Split Mode Comparison Overlay */}
-          {viewMode === 'split' && (
+          {/* Full Original Image Canvas (Active when Compare is toggled on) */}
+          <canvas
+            ref={originalCanvasRef}
+            id="original-compare-canvas"
+            width={CGA_WIDTH}
+            height={CGA_HEIGHT}
+            className={`pixelated ${showOriginal ? 'block' : 'hidden'}`}
+            style={{
+              width: `${CGA_WIDTH * zoom}px`,
+              height: `${CGA_HEIGHT * zoom}px`,
+            }}
+          />
+
+          {/* Floating Compare Banner when showing Original */}
+          {showOriginal && (
+            <div className="absolute top-2 left-2 z-30 bg-neutral-950/95 border border-amber-500/80 rounded-lg p-2 shadow-xl backdrop-blur-md flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse flex-shrink-0" />
+              <div className="flex flex-col">
+                <span className="text-[11px] font-bold text-amber-300 font-mono flex items-center gap-1">
+                  VIEWING ORIGINAL IMAGE
+                </span>
+                <span className="text-[9px] text-neutral-400 font-mono">
+                  Toggle 'Compare' or press <kbd className="px-1 py-0.2 bg-neutral-800 rounded text-neutral-300">Space</kbd> to return to 2-Bit CGA
+                </span>
+              </div>
+              <button
+                id="btn-return-to-cga"
+                onClick={() => setShowOriginal(false)}
+                className="ml-2 px-2 py-0.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-amber-300 rounded text-[10px] font-mono cursor-pointer transition-colors"
+              >
+                Back to 2-Bit
+              </button>
+            </div>
+          )}
+
+          {/* Split Mode Comparison Overlay (only when not in full Original Compare mode) */}
+          {!showOriginal && viewMode === 'split' && (
             <>
               <div
                 className="absolute inset-0 overflow-hidden pointer-events-none"
@@ -350,7 +525,7 @@ export const ViewportCanvas: React.FC<ViewportCanvasProps> = ({
           )}
 
           {/* Digit Matrix Zoom Overlay Mode */}
-          {viewMode === 'digits' && result && (
+          {!showOriginal && viewMode === 'digits' && result && (
             <div
               id="digit-matrix-overlay"
               className="absolute inset-0 pointer-events-none flex flex-col justify-between"
@@ -453,32 +628,72 @@ export const ViewportCanvas: React.FC<ViewportCanvasProps> = ({
         <div className="flex items-center gap-3">
           {hoverPixel ? (
             <div className="flex items-center gap-2 text-neutral-300">
-              <span className="text-neutral-500">POS:</span>
-              <span className="text-cyan-400 font-bold">
-                X:{hoverPixel.x} Y:{hoverPixel.y}
-              </span>
-              <span className="text-neutral-600">|</span>
-              <span className="text-neutral-500">DIGIT:</span>
-              <span className="px-1.5 py-0.5 rounded bg-neutral-950 border border-neutral-700 text-white font-bold font-mono">
-                {hoverPixel.digit}
-              </span>
-              <span className="text-neutral-600">|</span>
-              <span className="text-neutral-500">COLOR:</span>
-              <div className="flex items-center gap-1.5">
-                <span
-                  className="w-3 h-3 rounded-full border border-white/30 inline-block shadow-sm"
-                  style={{ backgroundColor: hoverPixel.hex }}
-                />
-                <span className="text-neutral-200">{hoverPixel.colorName}</span>
-                <span className="text-neutral-500 text-[10px]">
-                  ({hoverPixel.hex})
-                </span>
-              </div>
+              {showOriginal ? (
+                <>
+                  <span className="text-amber-400 font-bold bg-amber-950/80 px-1.5 py-0.5 rounded border border-amber-700/60 text-[10px]">
+                    ORIGINAL
+                  </span>
+                  <span className="text-neutral-500">POS:</span>
+                  <span className="text-amber-300 font-bold">
+                    X:{hoverPixel.x} Y:{hoverPixel.y}
+                  </span>
+                  {hoverPixel.origRgb && (
+                    <>
+                      <span className="text-neutral-600">|</span>
+                      <span className="text-neutral-500">RGB:</span>
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className="w-3 h-3 rounded-full border border-white/30 inline-block shadow-sm"
+                          style={{
+                            backgroundColor: `rgb(${hoverPixel.origRgb[0]}, ${hoverPixel.origRgb[1]}, ${hoverPixel.origRgb[2]})`,
+                          }}
+                        />
+                        <span className="text-white font-mono">
+                          rgb({hoverPixel.origRgb[0]}, {hoverPixel.origRgb[1]}, {hoverPixel.origRgb[2]})
+                        </span>
+                      </div>
+                    </>
+                  )}
+                  <span className="text-neutral-600">|</span>
+                  <span className="text-neutral-500">2-BIT DIGIT:</span>
+                  <span className="px-1.5 py-0.5 rounded bg-neutral-950 border border-neutral-700 text-cyan-300 font-bold font-mono">
+                    {hoverPixel.digit} ({hoverPixel.colorName})
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="text-neutral-500">POS:</span>
+                  <span className="text-cyan-400 font-bold">
+                    X:{hoverPixel.x} Y:{hoverPixel.y}
+                  </span>
+                  <span className="text-neutral-600">|</span>
+                  <span className="text-neutral-500">DIGIT:</span>
+                  <span className="px-1.5 py-0.5 rounded bg-neutral-950 border border-neutral-700 text-white font-bold font-mono">
+                    {hoverPixel.digit}
+                  </span>
+                  <span className="text-neutral-600">|</span>
+                  <span className="text-neutral-500">COLOR:</span>
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className="w-3 h-3 rounded-full border border-white/30 inline-block shadow-sm"
+                      style={{ backgroundColor: hoverPixel.hex }}
+                    />
+                    <span className="text-neutral-200">{hoverPixel.colorName}</span>
+                    <span className="text-neutral-500 text-[10px]">
+                      ({hoverPixel.hex})
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             <div className="flex items-center gap-2 text-neutral-500">
               <Info className="w-3.5 h-3.5 text-neutral-500" />
-              <span>Hover canvas to inspect pixel coordinates & 2-bit digits (0..3)</span>
+              <span>
+                {showOriginal
+                  ? 'Viewing original source image • Toggle Compare (or press Space) to return to 2-Bit CGA'
+                  : 'Hover canvas to inspect pixel coordinates • Toggle Compare (or press Space) for original image'}
+              </span>
             </div>
           )}
         </div>
@@ -486,17 +701,19 @@ export const ViewportCanvas: React.FC<ViewportCanvasProps> = ({
         {/* Right: Technical Stats Bar */}
         <div className="flex items-center gap-4 text-neutral-400">
           <div>
-            DIMENSIONS:{' '}
-            <span className="text-white font-semibold">320 × 200</span>
+            MODE:{' '}
+            <span className={showOriginal ? 'text-amber-400 font-bold' : 'text-cyan-400 font-semibold'}>
+              {showOriginal ? 'ORIGINAL SOURCE' : '2-BIT CGA (320×200)'}
+            </span>
           </div>
           <div>
             TOTAL DIGITS:{' '}
-            <span className="text-cyan-400 font-semibold">64,000</span>
+            <span className="text-purple-400 font-semibold">64,000</span>
           </div>
-          <div>
-            COLOR DEPTH:{' '}
-            <span className="text-purple-400 font-semibold">
-              2-Bit (4 Colors)
+          <div className="hidden sm:block">
+            PIXEL DEPTH:{' '}
+            <span className="text-white font-semibold">
+              {showOriginal ? '24-Bit RGB' : '2-Bit (4 Colors)'}
             </span>
           </div>
         </div>
