@@ -377,14 +377,64 @@ export function processCgaDither(
 }
 
 /**
+ * End-to-end helper to preprocess an HTMLImageElement and run 2-bit CGA dithering
+ */
+export function processImageElementToCga(
+  image: HTMLImageElement,
+  palette: CgaPalette,
+  algorithm: DitherAlgorithm,
+  fitMode: FitMode,
+  adjustments: ImageAdjustments
+): ProcessingResult {
+  const rgbBuffer = preprocessImage(
+    image,
+    image.naturalWidth || image.width,
+    image.naturalHeight || image.height,
+    fitMode,
+    adjustments
+  );
+  return processCgaDither(rgbBuffer, palette, algorithm, adjustments);
+}
+
+/**
+ * Renders a 320x200 ImageData into a PNG data URL for crisp thumbnail previews
+ */
+export function renderImageDataToDataUrl(imageData: ImageData): string {
+  const canvas = document.createElement('canvas');
+  canvas.width = imageData.width;
+  canvas.height = imageData.height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return '';
+  ctx.putImageData(imageData, 0, 0);
+  return canvas.toDataURL('image/png');
+}
+
+/**
+ * Triggers browser download of a Blob (e.g., ZIP archive)
+ */
+export function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+/**
  * Generates the downloaded text output in various requested formats
  */
 export function generateDigitsText(
   digits: Uint8Array,
   format: TxtExportFormat,
-  palette: CgaPalette
+  palette: CgaPalette,
+  customBaseName?: string
 ): { text: string; filename: string; mimeType: string; byteCount: number } {
-  const baseName = `cga_digits_320x200_${palette.id}`;
+  const baseName = customBaseName
+    ? `${customBaseName}_cga_${palette.id}`
+    : `cga_digits_320x200_${palette.id}`;
 
   switch (format) {
     case 'raw_grid': {

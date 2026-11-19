@@ -6,6 +6,7 @@ import {
   RotateCcw,
   Cpu,
   FileText,
+  Layers,
 } from 'lucide-react';
 import { SampleImage } from '../types';
 
@@ -17,6 +18,9 @@ interface HeaderProps {
   onOpenExportModal: () => void;
   onResetAdjustments: () => void;
   quickDownloadTxt: () => void;
+  isBatchMode: boolean;
+  batchCount: number;
+  onToggleBatchMode: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -27,6 +31,9 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenExportModal,
   onResetAdjustments,
   quickDownloadTxt,
+  isBatchMode,
+  batchCount,
+  onToggleBatchMode,
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -125,6 +132,25 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <Upload className="w-3.5 h-3.5 text-neutral-400" />
             <span>Upload Image</span>
+          </button>
+
+          <button
+            id="btn-header-batch-mode"
+            onClick={onToggleBatchMode}
+            className={`px-3 py-1.5 rounded-md text-xs font-mono flex items-center gap-1.5 border transition-all cursor-pointer ${
+              isBatchMode
+                ? 'bg-cyan-950 text-cyan-300 border-cyan-500 ring-1 ring-cyan-500/40 font-semibold shadow-sm shadow-cyan-500/20'
+                : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border-neutral-700'
+            }`}
+            title="Switch to multi-image Batch Processing & ZIP export"
+          >
+            <Layers className={`w-3.5 h-3.5 ${isBatchMode ? 'text-cyan-400' : 'text-purple-400'}`} />
+            <span>Batch Mode</span>
+            {batchCount > 0 && (
+              <span className="ml-0.5 px-1.5 py-0.2 rounded-full bg-cyan-500 text-black text-[10px] font-bold">
+                {batchCount}
+              </span>
+            )}
           </button>
 
           <button

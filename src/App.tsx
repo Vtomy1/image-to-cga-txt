@@ -3,10 +3,12 @@ import { Header } from './components/Header';
 import { ViewportCanvas } from './components/ViewportCanvas';
 import { ControlsPanel } from './components/ControlsPanel';
 import { ColorDistributionWidget } from './components/ColorDistributionWidget';
+import { BatchProcessor } from './components/BatchProcessor';
 import { TextExportModal } from './components/TextExportModal';
 import { CGA_PALETTES } from './constants/palettes';
 import { getSampleImages } from './constants/samples';
 import {
+  BatchItem,
   CgaPalette,
   DitherAlgorithm,
   FitMode,
@@ -17,10 +19,12 @@ import {
 import {
   preprocessImage,
   processCgaDither,
+  processImageElementToCga,
+  renderImageDataToDataUrl,
   downloadFile,
   generateDigitsText,
 } from './utils/cgaDither';
-import { Upload, Sparkles, Terminal, FileDown } from 'lucide-react';
+import { Upload, Terminal, FileDown, Layers } from 'lucide-react';
 
 const DEFAULT_ADJUSTMENTS: ImageAdjustments = {
   brightness: 0,
@@ -50,6 +54,11 @@ export default function App() {
   const [result, setResult] = useState<ProcessingResult | null>(null);
   const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
 
+  // Batch processing state
+  const [isBatchMode, setIsBatchMode] = useState<boolean>(false);
+  const [batchItems, setBatchItems] = useState<BatchItem[]>([]);
+  const [selectedBatchItemId, setSelectedBatchItemId] = useState<string | null>(null);
+
   // Load initial sample image
   useEffect(() => {
     const initialSample = samples[0];
@@ -63,6 +72,7 @@ export default function App() {
   // Handle switching sample images
   const handleSelectSample = (sample: SampleImage) => {
     setSelectedSampleId(sample.id);
+    setIsBatchMode(false);
     const img = new Image();
     img.onload = () => {
       setSourceImage(img);
@@ -106,10 +116,139 @@ export default function App() {
     downloadFile(exportData.text, exportData.filename, exportData.mimeType);
   };
 
-  // Handle user uploaded image
+  // Handle user uploaded single image
   const handleImageLoaded = (img: HTMLImageElement) => {
     setSelectedSampleId('');
+    setIsBatchMode(false);
     setSourceImage(img);
+  };
+
+  // Load multiple files into the Batch Queue
+  const handleAddBatchFiles = useCallback(
+    async (fileList: FileList | File[]) => {
+      const files = Array.from(fileList).filter((f) =>
+        f.type.startsWith('image/')
+      );
+      if (files.length === 0) return;
+
+      const loadedItems: BatchItem[] = await Promise.all(
+        files.map(
+          (file, idx) =>
+            new Promise<BatchItem | null>((resolve) => {
+              const reader = new FileReader();
+              reader.onload = (event) => {
+                const dataUrl = event.target?.result as string;
+                const img = new Image();
+                img.onload = () => {
+                  const baseRaw = file.name.replace(/\.[^/.]+$/, '');
+                  const sanitizedBase =
+                    baseRaw.replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') ||
+                    'image';
+
+                  let initialResult: ProcessingResult | undefined;
+                  let previewDataUrl: string | undefined;
+                  try {
+                    initialResult = processImageElementToCga(
+                      img,
+                      palette,
+                      algorithm,
+                      fitMode,
+                      adjustments
+                    );
+                    previewDataUrl = renderImageDataToDataUrl(
+                      initialResult.imageData
+                    );
+                  } catch (err) {
+                    console.error('Error preprocessing batch image:', err);
+                  }
+
+                  resolve({
+                    id: `${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 8)}`,
+                    filename: file.name,
+                    baseName: sanitizedBase,
+                    width: img.naturalWidth || img.width,
+                    height: img.naturalHeight || img.height,
+                    sourceDataUrl: dataUrl,
+                    imageElement: img,
+                    result: initialResult,
+                    previewDataUrl,
+                  });
+                };
+                img.onerror = () => resolve(null);
+                img.src = dataUrl;
+              };
+              reader.onerror = () => resolve(null);
+              reader.readAsDataURL(file);
+            })
+        )
+      ).then((res) => res.filter((x): x is BatchItem => x !== null));
+
+      if (loadedItems.length > 0) {
+        setBatchItems((prev) => [...prev, ...loadedItems]);
+        setSelectedBatchItemId((prev) => prev ?? loadedItems[0].id);
+      }
+    },
+    [palette, algorithm, fitMode, adjustments]
+  );
+
+  // Add built-in sample scenes into Batch Queue
+  const handleAddBatchSamples = useCallback(
+    async (sampleList: SampleImage[]) => {
+      const loadedItems: BatchItem[] = await Promise.all(
+        sampleList.map(
+          (sample, idx) =>
+            new Promise<BatchItem | null>((resolve) => {
+              const img = new Image();
+              img.onload = () => {
+                const sanitizedBase = sample.id.replace(/[^a-zA-Z0-9_-]+/g, '_');
+                let initialResult: ProcessingResult | undefined;
+                let previewDataUrl: string | undefined;
+                try {
+                  initialResult = processImageElementToCga(
+                    img,
+                    palette,
+                    algorithm,
+                    fitMode,
+                    adjustments
+                  );
+                  previewDataUrl = renderImageDataToDataUrl(initialResult.imageData);
+                } catch (err) {
+                  console.error('Error processing sample batch item:', err);
+                }
+                resolve({
+                  id: `sample_${sample.id}_${Date.now()}_${idx}`,
+                  filename: `${sample.id}.png`,
+                  baseName: sanitizedBase,
+                  width: img.naturalWidth || img.width,
+                  height: img.naturalHeight || img.height,
+                  sourceDataUrl: sample.dataUrl,
+                  imageElement: img,
+                  result: initialResult,
+                  previewDataUrl,
+                });
+              };
+              img.onerror = () => resolve(null);
+              img.src = sample.dataUrl;
+            })
+        )
+      ).then((res) => res.filter((x): x is BatchItem => x !== null));
+
+      if (loadedItems.length > 0) {
+        setBatchItems((prev) => [...prev, ...loadedItems]);
+        setSelectedBatchItemId((prev) => prev ?? loadedItems[0].id);
+      }
+    },
+    [palette, algorithm, fitMode, adjustments]
+  );
+
+  const handleRemoveBatchItem = (id: string) => {
+    setBatchItems((prev) => prev.filter((item) => item.id !== id));
+    setSelectedBatchItemId((prev) => (prev === id ? null : prev));
+  };
+
+  const handleClearBatch = () => {
+    setBatchItems([]);
+    setSelectedBatchItemId(null);
   };
 
   // Global Drag and Drop support
@@ -126,8 +265,17 @@ export default function App() {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDraggingOver(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file && file.type.startsWith('image/')) {
+    const files = Array.from(e.dataTransfer.files).filter((f) =>
+      f.type.startsWith('image/')
+    );
+    if (files.length === 0) return;
+
+    // Multi-file drop or drop while in Batch Mode feeds the batch queue
+    if (isBatchMode || files.length > 1) {
+      setIsBatchMode(true);
+      handleAddBatchFiles(files);
+    } else {
+      const file = files[0];
       const reader = new FileReader();
       reader.onload = (event) => {
         const img = new Image();
@@ -148,13 +296,17 @@ export default function App() {
         if (items[i].type.startsWith('image/')) {
           const file = items[i].getAsFile();
           if (file) {
-            const reader = new FileReader();
-            reader.onload = (event) => {
-              const img = new Image();
-              img.onload = () => handleImageLoaded(img);
-              img.src = event.target?.result as string;
-            };
-            reader.readAsDataURL(file);
+            if (isBatchMode) {
+              handleAddBatchFiles([file]);
+            } else {
+              const reader = new FileReader();
+              reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => handleImageLoaded(img);
+                img.src = event.target?.result as string;
+              };
+              reader.readAsDataURL(file);
+            }
             break;
           }
         }
@@ -163,7 +315,19 @@ export default function App() {
 
     window.addEventListener('paste', handlePaste);
     return () => window.removeEventListener('paste', handlePaste);
-  }, []);
+  }, [isBatchMode, handleAddBatchFiles]);
+
+  // Active result shown in ControlsPanel stats & ColorDistributionWidget
+  const inspectedBatchItem = useMemo(() => {
+    if (!isBatchMode || batchItems.length === 0) return null;
+    return (
+      batchItems.find((b) => b.id === selectedBatchItemId) ?? batchItems[0]
+    );
+  }, [isBatchMode, batchItems, selectedBatchItemId]);
+
+  const activeStatsResult = isBatchMode
+    ? inspectedBatchItem?.result ?? result
+    : result;
 
   return (
     <div
@@ -177,10 +341,12 @@ export default function App() {
         <div className="fixed inset-0 z-50 bg-cyan-950/85 backdrop-blur-md border-4 border-dashed border-cyan-400 flex flex-col items-center justify-center pointer-events-none animate-pulse">
           <Upload className="w-16 h-16 text-cyan-400 mb-3" />
           <h3 className="text-xl font-mono font-bold text-white">
-            DROP IMAGE TO QUANTIZE & DITHER
+            {isBatchMode
+              ? 'DROP IMAGES TO ADD TO BATCH QUEUE'
+              : 'DROP IMAGE(S) TO QUANTIZE & DITHER'}
           </h3>
           <p className="text-xs font-mono text-cyan-300 mt-1">
-            Converts to 320×200 2-Bit CGA digits (0..3)
+            Drop multiple images to automatically launch Batch ZIP Mode
           </p>
         </div>
       )}
@@ -194,6 +360,9 @@ export default function App() {
         onOpenExportModal={() => setIsExportModalOpen(true)}
         onResetAdjustments={handleResetAdjustments}
         quickDownloadTxt={handleQuickDownloadTxt}
+        isBatchMode={isBatchMode}
+        batchCount={batchItems.length}
+        onToggleBatchMode={() => setIsBatchMode((prev) => !prev)}
       />
 
       {/* Main Workspace Layout */}
@@ -210,10 +379,22 @@ export default function App() {
             </span>
           </div>
 
-          <div className="flex items-center gap-3 text-neutral-400">
+          <div className="flex items-center gap-2.5 text-neutral-400">
             <span className="hidden sm:inline">
-              Tip: Paste image from clipboard with <kbd className="px-1.5 py-0.5 bg-neutral-800 border border-neutral-700 rounded text-neutral-200">Ctrl+V</kbd>
+              Tip: Paste with <kbd className="px-1.5 py-0.5 bg-neutral-800 border border-neutral-700 rounded text-neutral-200">Ctrl+V</kbd> or drop multiple files for Batch ZIP
             </span>
+            <button
+              id="btn-strip-batch-toggle"
+              onClick={() => setIsBatchMode((prev) => !prev)}
+              className={`px-3 py-1 rounded border flex items-center gap-1.5 transition-colors cursor-pointer ${
+                isBatchMode
+                  ? 'bg-cyan-950 text-cyan-300 border-cyan-600'
+                  : 'bg-neutral-800 hover:bg-neutral-700 text-purple-300 border-neutral-700'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>{isBatchMode ? 'Exit Batch Mode' : 'Batch ZIP Mode'}</span>
+            </button>
             <button
               id="btn-main-quick-download"
               onClick={handleQuickDownloadTxt}
@@ -225,21 +406,40 @@ export default function App() {
           </div>
         </div>
 
-        {/* Viewport Canvas and Controls Grid */}
+        {/* Viewport Canvas / Batch Processor and Controls Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-          {/* Left / Top: Interactive 320x200 CRT Viewport (7 cols on desktop) */}
+          {/* Left / Top: Single Viewport OR Batch Processor (7 cols on desktop) */}
           <div className="lg:col-span-7 flex flex-col gap-3">
-            <ViewportCanvas
-              result={result}
-              sourceImage={sourceImage}
-              fitMode={fitMode}
-              crtEffect={crtEffect}
-              onToggleCrt={() => setCrtEffect(!crtEffect)}
-              showPixelGrid={showPixelGrid}
-              onTogglePixelGrid={() => setShowPixelGrid(!showPixelGrid)}
-              aspectRatio43={aspectRatio43}
-              onToggleAspectRatio={() => setAspectRatio43(!aspectRatio43)}
-            />
+            {isBatchMode ? (
+              <BatchProcessor
+                items={batchItems}
+                onAddFiles={handleAddBatchFiles}
+                onAddSamples={handleAddBatchSamples}
+                onRemoveItem={handleRemoveBatchItem}
+                onClearAll={handleClearBatch}
+                onUpdateItems={setBatchItems}
+                selectedItemId={selectedBatchItemId}
+                onSelectItem={setSelectedBatchItemId}
+                samples={samples}
+                palette={palette}
+                algorithm={algorithm}
+                fitMode={fitMode}
+                adjustments={adjustments}
+                onExitBatchMode={() => setIsBatchMode(false)}
+              />
+            ) : (
+              <ViewportCanvas
+                result={result}
+                sourceImage={sourceImage}
+                fitMode={fitMode}
+                crtEffect={crtEffect}
+                onToggleCrt={() => setCrtEffect(!crtEffect)}
+                showPixelGrid={showPixelGrid}
+                onTogglePixelGrid={() => setShowPixelGrid(!showPixelGrid)}
+                aspectRatio43={aspectRatio43}
+                onToggleAspectRatio={() => setAspectRatio43(!aspectRatio43)}
+              />
+            )}
           </div>
 
           {/* Right / Bottom: Controls Panel (5 cols on desktop) */}
@@ -254,11 +454,11 @@ export default function App() {
               adjustments={adjustments}
               onChangeAdjustments={handleUpdateAdjustments}
               onResetAdjustments={handleResetAdjustments}
-              result={result}
+              result={activeStatsResult}
             />
 
             {/* Live 4-Color CGA Distribution & Dithering Optimization Widget */}
-            <ColorDistributionWidget result={result} />
+            <ColorDistributionWidget result={activeStatsResult} />
           </div>
         </div>
       </main>

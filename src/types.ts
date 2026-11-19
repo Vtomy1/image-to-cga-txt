@@ -64,3 +64,15 @@ export interface SampleImage {
   category: string;
   dataUrl: string;
 }
+
+export interface BatchItem {
+  id: string;
+  filename: string;
+  baseName: string;
+  width: number;
+  height: number;
+  sourceDataUrl: string;
+  imageElement: HTMLImageElement;
+  result?: ProcessingResult;
+  previewDataUrl?: string;
+}
