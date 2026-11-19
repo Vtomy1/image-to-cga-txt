@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { ProcessingResult } from '../types';
 import { downloadFile } from '../utils/cgaDither';
+import { getContrastTextColor } from '../constants/palettes';
 
 interface ColorDistributionWidgetProps {
   result: ProcessingResult | null;
@@ -221,10 +222,7 @@ export const ColorDistributionWidget: React.FC<ColorDistributionWidgetProps> = (
                   <span
                     className="text-[9px] font-bold drop-shadow-sm px-0.5 select-none"
                     style={{
-                      color:
-                        col.hex === '#ffffff' || col.hex.includes('ff')
-                          ? '#000000'
-                          : '#ffffff',
+                      color: getContrastTextColor(col.rgb),
                     }}
                   >
                     {pct}%
@@ -260,10 +258,7 @@ export const ColorDistributionWidget: React.FC<ColorDistributionWidgetProps> = (
                   className="w-5 h-5 rounded border border-white/20 flex items-center justify-center font-black text-[11px] shadow-sm flex-shrink-0"
                   style={{
                     backgroundColor: col.hex,
-                    color:
-                      col.hex === '#ffffff' || col.hex.includes('ff')
-                        ? '#000000'
-                        : '#ffffff',
+                    color: getContrastTextColor(col.rgb),
                   }}
                 >
                   {col.index}

@@ -85,7 +85,24 @@ export const CGA_PALETTES: CgaPalette[] = [
       { index: 3, name: 'Phosphor Mint', hex: '#86efac', rgb: [134, 239, 172] },
     ],
   },
+  {
+    id: 'cga_gray',
+    name: 'Grayscale (2-Bit Gray)',
+    category: 'retro',
+    description: 'Black, Dark Gray, Light Gray, White — Classic 4-level monochrome.',
+    colors: [
+      { index: 0, name: 'Black', hex: '#000000', rgb: [0, 0, 0] },
+      { index: 1, name: 'Dark Gray', hex: '#555555', rgb: [85, 85, 85] },
+      { index: 2, name: 'Light Gray', hex: '#aaaaaa', rgb: [170, 170, 170] },
+      { index: 3, name: 'Bright White', hex: '#ffffff', rgb: [255, 255, 255] },
+    ],
+  },
 ];
+
+export function getContrastTextColor(rgb: [number, number, number]): string {
+  const luminance = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2];
+  return luminance > 140 ? '#000000' : '#ffffff';
+}
 
 export function hexToRgb(hex: string): [number, number, number] {
   const cleanHex = hex.replace('#', '');

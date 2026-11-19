@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { FitMode, ProcessingResult } from '../types';
 import { CGA_HEIGHT, CGA_WIDTH } from '../utils/cgaDither';
+import { getContrastTextColor } from '../constants/palettes';
 
 interface ViewportCanvasProps {
   result: ProcessingResult | null;
@@ -600,10 +601,7 @@ export const ViewportCanvas: React.FC<ViewportCanvasProps> = ({
                             }`}
                             style={{
                               backgroundColor: nCol.hex,
-                              color:
-                                nCol.hex === '#ffffff' || nCol.hex.includes('ff')
-                                  ? '#000000'
-                                  : '#ffffff',
+                              color: getContrastTextColor(nCol.rgb),
                             }}
                           >
                             {nDigit}

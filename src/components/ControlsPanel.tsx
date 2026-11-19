@@ -18,7 +18,7 @@ import {
   ImageAdjustments,
   ProcessingResult,
 } from '../types';
-import { CGA_PALETTES, createCustomPalette } from '../constants/palettes';
+import { CGA_PALETTES, createCustomPalette, getContrastTextColor } from '../constants/palettes';
 
 interface ControlsPanelProps {
   currentPalette: CgaPalette;
@@ -228,10 +228,7 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
                           <span
                             className="text-[10px] font-mono font-bold drop-shadow-md"
                             style={{
-                              color:
-                                c.hex === '#ffffff' || c.hex.includes('ff')
-                                  ? '#000000'
-                                  : '#ffffff',
+                              color: getContrastTextColor(c.rgb),
                             }}
                           >
                             {c.index}
@@ -263,10 +260,7 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
                       className="w-5 h-5 rounded border border-white/20 flex items-center justify-center font-bold text-[10px] shadow-sm"
                       style={{
                         backgroundColor: col.hex,
-                        color:
-                          col.hex === '#ffffff' || col.hex.includes('ff')
-                            ? '#000000'
-                            : '#ffffff',
+                        color: getContrastTextColor(col.rgb),
                       }}
                     >
                       {col.index}
@@ -569,10 +563,7 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
                           className="w-5 h-5 rounded border border-white/20 flex items-center justify-center font-bold text-[11px]"
                           style={{
                             backgroundColor: col.hex,
-                            color:
-                              col.hex === '#ffffff' || col.hex.includes('ff')
-                                ? '#000000'
-                                : '#ffffff',
+                            color: getContrastTextColor(col.rgb),
                           }}
                         >
                           {col.index}
