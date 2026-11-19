@@ -1,13 +1,90 @@
-import React from 'react';
-import { BarChart3, Info, CheckCircle2, AlertTriangle, Sparkles } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import {
+  BarChart3,
+  Info,
+  CheckCircle2,
+  AlertTriangle,
+  Download,
+  Code2,
+  Copy,
+  Check,
+  FileJson,
+  FileCode,
+} from 'lucide-react';
 import { ProcessingResult } from '../types';
+import { downloadFile } from '../utils/cgaDither';
 
 interface ColorDistributionWidgetProps {
   result: ProcessingResult | null;
 }
 
 export const ColorDistributionWidget: React.FC<ColorDistributionWidgetProps> = ({ result }) => {
-  if (!result) {
+  const [previewFormat, setPreviewFormat] = useState<'json' | 'css' | null>(null);
+  const [copiedFormat, setCopiedFormat] = useState<'json' | 'css' | null>(null);
+
+  const exportedSnippets = useMemo(() => {
+    if (!result) return null;
+    const { palette, stats } = result;
+    const safeId = palette.id.replace(/[^a-zA-Z0-9_-]+/g, '-').toLowerCase();
+
+    const jsonPayload = {
+      name: palette.name,
+      id: palette.id,
+      category: palette.category,
+      description: palette.description,
+      colors: palette.colors.map((c) => ({
+        digit: c.index,
+        name: c.name,
+        hex: c.hex,
+        rgb: c.rgb,
+        usage: {
+          pixels: stats.counts[c.index],
+          percentage: stats.percentages[c.index],
+        },
+      })),
+    };
+    const jsonText = JSON.stringify(jsonPayload, null, 2);
+
+    const usedSlugs = new Set<string>();
+    const aliasLines = palette.colors.map((c) => {
+      let slug = c.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+      if (!slug || usedSlugs.has(slug)) {
+        slug = `${slug || 'color'}-${c.index}`;
+      }
+      usedSlugs.add(slug);
+      return `  --cga-${slug}: ${c.hex};`;
+    });
+
+    const cssLines = [
+      `/* ${palette.name} (${palette.id}) — 2-Bit CGA 4-Color Palette */`,
+      `:root {`,
+      ...palette.colors.map(
+        (c) =>
+          `  --cga-color-${c.index}: ${c.hex}; /* Digit ${c.index}: ${c.name} (${stats.percentages[c.index]}%) */`
+      ),
+      ...palette.colors.map(
+        (c) => `  --cga-color-${c.index}-rgb: ${c.rgb.join(', ')};`
+      ),
+      ``,
+      `  /* Named Aliases */`,
+      ...aliasLines,
+      `}`,
+    ];
+    const cssText = cssLines.join('\n');
+
+    return {
+      safeId,
+      jsonText,
+      jsonFilename: `cga_palette_${safeId}.json`,
+      cssText,
+      cssFilename: `cga_palette_${safeId}.css`,
+    };
+  }, [result]);
+
+  if (!result || !exportedSnippets) {
     return (
       <div className="bg-neutral-900 border border-neutral-800 rounded-xl p-4 text-xs font-mono text-neutral-500 flex items-center justify-center gap-2">
         <BarChart3 className="w-4 h-4 animate-pulse text-cyan-500" />
@@ -76,6 +153,29 @@ export const ColorDistributionWidget: React.FC<ColorDistributionWidgetProps> = (
       tip: 'Try switching between Bayer 8×8 and Floyd-Steinberg to test dither grain aesthetics.',
     };
   }
+
+  const handleDownloadJson = () => {
+    downloadFile(
+      exportedSnippets.jsonText,
+      exportedSnippets.jsonFilename,
+      'application/json'
+    );
+  };
+
+  const handleDownloadCss = () => {
+    downloadFile(
+      exportedSnippets.cssText,
+      exportedSnippets.cssFilename,
+      'text/css'
+    );
+  };
+
+  const handleCopySnippet = (fmt: 'json' | 'css') => {
+    const content = fmt === 'json' ? exportedSnippets.jsonText : exportedSnippets.cssText;
+    navigator.clipboard.writeText(content);
+    setCopiedFormat(fmt);
+    setTimeout(() => setCopiedFormat(null), 1800);
+  };
 
   return (
     <div
@@ -201,6 +301,113 @@ export const ColorDistributionWidget: React.FC<ColorDistributionWidgetProps> = (
             </div>
           );
         })}
+      </div>
+
+      {/* Palette Export Bar (JSON / CSS Variables) */}
+      <div className="p-2.5 rounded-lg bg-neutral-950 border border-neutral-800 flex flex-col gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-[10px] text-neutral-400">
+            <Code2 className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="uppercase font-semibold text-neutral-300">
+              Export 4-Color Palette:
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              id="btn-export-palette-json"
+              onClick={handleDownloadJson}
+              className="px-2 py-1 rounded bg-neutral-900 hover:bg-neutral-800 text-cyan-300 border border-neutral-700 hover:border-cyan-600/70 text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+              title={`Download ${exportedSnippets.jsonFilename}`}
+            >
+              <FileJson className="w-3 h-3 text-cyan-400" />
+              <span>.JSON</span>
+              <Download className="w-2.5 h-2.5 opacity-75" />
+            </button>
+
+            <button
+              id="btn-export-palette-css"
+              onClick={handleDownloadCss}
+              className="px-2 py-1 rounded bg-neutral-900 hover:bg-neutral-800 text-purple-300 border border-neutral-700 hover:border-purple-600/70 text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+              title={`Download ${exportedSnippets.cssFilename}`}
+            >
+              <FileCode className="w-3 h-3 text-purple-400" />
+              <span>.CSS</span>
+              <Download className="w-2.5 h-2.5 opacity-75" />
+            </button>
+
+            <button
+              id="btn-preview-palette-code"
+              onClick={() =>
+                setPreviewFormat((prev) =>
+                  prev === null ? 'css' : prev === 'css' ? 'json' : null
+                )
+              }
+              className={`px-2 py-1 rounded border text-[10px] transition-colors cursor-pointer ${
+                previewFormat
+                  ? 'bg-cyan-950/70 text-cyan-300 border-cyan-700'
+                  : 'bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-neutral-200 border-neutral-800'
+              }`}
+              title="Preview or copy JSON / CSS palette code"
+            >
+              {previewFormat ? `Hide (${previewFormat.toUpperCase()})` : 'Preview'}
+            </button>
+          </div>
+        </div>
+
+        {/* Expandable Code Preview & Copy */}
+        {previewFormat && (
+          <div className="border-t border-neutral-800 pt-2 space-y-1.5">
+            <div className="flex items-center justify-between text-[10px]">
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPreviewFormat('css')}
+                  className={`px-2 py-0.5 rounded border cursor-pointer ${
+                    previewFormat === 'css'
+                      ? 'bg-purple-950/60 text-purple-300 border-purple-700 font-bold'
+                      : 'bg-neutral-900 text-neutral-400 border-neutral-800'
+                  }`}
+                >
+                  CSS Variables
+                </button>
+                <button
+                  onClick={() => setPreviewFormat('json')}
+                  className={`px-2 py-0.5 rounded border cursor-pointer ${
+                    previewFormat === 'json'
+                      ? 'bg-cyan-950/60 text-cyan-300 border-cyan-700 font-bold'
+                      : 'bg-neutral-900 text-neutral-400 border-neutral-800'
+                  }`}
+                >
+                  JSON
+                </button>
+              </div>
+
+              <button
+                id="btn-copy-palette-snippet"
+                onClick={() => handleCopySnippet(previewFormat)}
+                className="px-2 py-0.5 rounded bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-neutral-200 flex items-center gap-1 cursor-pointer"
+              >
+                {copiedFormat === previewFormat ? (
+                  <>
+                    <Check className="w-3 h-3 text-emerald-400" />
+                    <span className="text-emerald-300">Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3 h-3 text-neutral-400" />
+                    <span>Copy {previewFormat.toUpperCase()}</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            <pre className="bg-black border border-neutral-800 rounded p-2 text-[10px] text-neutral-300 overflow-x-auto max-h-40 leading-relaxed select-all">
+              {previewFormat === 'json'
+                ? exportedSnippets.jsonText
+                : exportedSnippets.cssText}
+            </pre>
+          </div>
+        )}
       </div>
 
       {/* Dithering Optimization Insight / Hint */}

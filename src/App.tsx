@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Header } from './components/Header';
 import { ViewportCanvas } from './components/ViewportCanvas';
 import { ControlsPanel } from './components/ControlsPanel';
+import { LuminanceHistogram } from './components/LuminanceHistogram';
 import { ColorDistributionWidget } from './components/ColorDistributionWidget';
 import { BatchProcessor } from './components/BatchProcessor';
 import { TextExportModal } from './components/TextExportModal';
@@ -455,6 +456,20 @@ export default function App() {
               onChangeAdjustments={handleUpdateAdjustments}
               onResetAdjustments={handleResetAdjustments}
               result={activeStatsResult}
+            />
+
+            {/* Pre-Process Source Luminance Histogram */}
+            <LuminanceHistogram
+              sourceImage={
+                isBatchMode && inspectedBatchItem
+                  ? inspectedBatchItem.imageElement
+                  : sourceImage
+              }
+              imageLabel={
+                isBatchMode && inspectedBatchItem
+                  ? inspectedBatchItem.filename
+                  : undefined
+              }
             />
 
             {/* Live 4-Color CGA Distribution & Dithering Optimization Widget */}
