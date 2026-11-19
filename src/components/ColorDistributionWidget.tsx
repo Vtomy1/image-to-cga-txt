@@ -10,6 +10,7 @@ import {
   Check,
   FileJson,
   FileCode,
+  Terminal,
 } from 'lucide-react';
 import { ProcessingResult } from '../types';
 import { downloadFile } from '../utils/cgaDither';
@@ -20,8 +21,8 @@ interface ColorDistributionWidgetProps {
 }
 
 export const ColorDistributionWidget: React.FC<ColorDistributionWidgetProps> = ({ result }) => {
-  const [previewFormat, setPreviewFormat] = useState<'json' | 'css' | null>(null);
-  const [copiedFormat, setCopiedFormat] = useState<'json' | 'css' | null>(null);
+  const [previewFormat, setPreviewFormat] = useState<'json' | 'css' | 'qbasic' | null>(null);
+  const [copiedFormat, setCopiedFormat] = useState<'json' | 'css' | 'qbasic' | null>(null);
 
   const exportedSnippets = useMemo(() => {
     if (!result) return null;
@@ -76,12 +77,59 @@ export const ColorDistributionWidget: React.FC<ColorDistributionWidgetProps> = (
     ];
     const cssText = cssLines.join('\n');
 
+    // QBasic / QuickBASIC / QB64 6-bit VGA PALETTE export (SCREEN 13: 320x200)
+    const cgaScreen1Hint: Record<string, string> = {
+      cga_pal1_high: 'SCREEN 1 : COLOR 8, 1  \' Classic CGA Pal 1 High-Intensity',
+      cga_pal1_low: 'SCREEN 1 : COLOR 0, 1  \' Classic CGA Pal 1 Low-Intensity',
+      cga_pal2_high: 'SCREEN 1 : COLOR 8, 0  \' Classic CGA Pal 2 High-Intensity',
+      cga_pal2_low: 'SCREEN 1 : COLOR 0, 0  \' Classic CGA Pal 2 Low-Intensity',
+    };
+
+    const qbasicEntries = palette.colors.map((c) => {
+      const r6 = Math.round((c.rgb[0] * 63) / 255);
+      const g6 = Math.round((c.rgb[1] * 63) / 255);
+      const b6 = Math.round((c.rgb[2] * 63) / 255);
+      const qbVal = 65536 * b6 + 256 * g6 + r6;
+      return {
+        c,
+        r6,
+        g6,
+        b6,
+        qbVal,
+      };
+    });
+
+    const qbasicLines = [
+      `REM ----------------------------------------------------------------`,
+      `REM ${palette.name} (${palette.id}) - 2-Bit 4-Color Palette`,
+      `REM Compatible with QBasic 1.1 / QuickBASIC 4.5 / QB64`,
+      `REM Formula: 65536& * B6 + 256& * G6 + R6  (6-bit VGA RGB 0..63)`,
+      `REM ----------------------------------------------------------------`,
+      `SCREEN 13`,
+      ...(cgaScreen1Hint[palette.id]
+        ? [`' Optional CGA Hardware Mode: ${cgaScreen1Hint[palette.id]}`]
+        : []),
+      ``,
+      ...qbasicEntries.map(
+        ({ c, r6, g6, b6, qbVal }) =>
+          `PALETTE ${c.index}, ${String(qbVal).padEnd(8)} ' Digit ${c.index}: ${c.name} (${c.hex}) VGA6(${r6},${g6},${b6})`
+      ),
+      ``,
+      `' Palette Swatch Test Loop:`,
+      `FOR i% = 0 TO 3`,
+      `  LINE (i% * 80, 0)-(i% * 80 + 79, 199), i%, BF`,
+      `NEXT i%`,
+    ];
+    const qbasicText = qbasicLines.join('\n');
+
     return {
       safeId,
       jsonText,
       jsonFilename: `cga_palette_${safeId}.json`,
       cssText,
       cssFilename: `cga_palette_${safeId}.css`,
+      qbasicText,
+      qbasicFilename: `cga_palette_${safeId}.bas`,
     };
   }, [result]);
 
@@ -171,8 +219,21 @@ export const ColorDistributionWidget: React.FC<ColorDistributionWidgetProps> = (
     );
   };
 
-  const handleCopySnippet = (fmt: 'json' | 'css') => {
-    const content = fmt === 'json' ? exportedSnippets.jsonText : exportedSnippets.cssText;
+  const handleDownloadQbasic = () => {
+    downloadFile(
+      exportedSnippets.qbasicText,
+      exportedSnippets.qbasicFilename,
+      'text/plain'
+    );
+  };
+
+  const handleCopySnippet = (fmt: 'json' | 'css' | 'qbasic') => {
+    const content =
+      fmt === 'json'
+        ? exportedSnippets.jsonText
+        : fmt === 'css'
+        ? exportedSnippets.cssText
+        : exportedSnippets.qbasicText;
     navigator.clipboard.writeText(content);
     setCopiedFormat(fmt);
     setTimeout(() => setCopiedFormat(null), 1800);
@@ -308,7 +369,7 @@ export const ColorDistributionWidget: React.FC<ColorDistributionWidgetProps> = (
             </span>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <button
               id="btn-export-palette-json"
               onClick={handleDownloadJson}
@@ -332,20 +393,29 @@ export const ColorDistributionWidget: React.FC<ColorDistributionWidgetProps> = (
             </button>
 
             <button
+              id="btn-export-palette-qbasic"
+              onClick={handleDownloadQbasic}
+              className="px-2 py-1 rounded bg-neutral-900 hover:bg-neutral-800 text-amber-300 border border-neutral-700 hover:border-amber-600/70 text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+              title={`Download ${exportedSnippets.qbasicFilename} (QBasic / QuickBASIC)`}
+            >
+              <Terminal className="w-3 h-3 text-amber-400" />
+              <span>.BAS</span>
+              <Download className="w-2.5 h-2.5 opacity-75" />
+            </button>
+
+            <button
               id="btn-preview-palette-code"
               onClick={() =>
-                setPreviewFormat((prev) =>
-                  prev === null ? 'css' : prev === 'css' ? 'json' : null
-                )
+                setPreviewFormat((prev) => (prev ? null : 'qbasic'))
               }
               className={`px-2 py-1 rounded border text-[10px] transition-colors cursor-pointer ${
                 previewFormat
                   ? 'bg-cyan-950/70 text-cyan-300 border-cyan-700'
                   : 'bg-neutral-900 hover:bg-neutral-800 text-neutral-400 hover:text-neutral-200 border-neutral-800'
               }`}
-              title="Preview or copy JSON / CSS palette code"
+              title="Preview or copy JSON / CSS / QBasic palette code"
             >
-              {previewFormat ? `Hide (${previewFormat.toUpperCase()})` : 'Preview'}
+              {previewFormat ? 'Hide Code' : 'Preview'}
             </button>
           </div>
         </div>
@@ -353,7 +423,7 @@ export const ColorDistributionWidget: React.FC<ColorDistributionWidgetProps> = (
         {/* Expandable Code Preview & Copy */}
         {previewFormat && (
           <div className="border-t border-neutral-800 pt-2 space-y-1.5">
-            <div className="flex items-center justify-between text-[10px]">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[10px]">
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => setPreviewFormat('css')}
@@ -375,6 +445,16 @@ export const ColorDistributionWidget: React.FC<ColorDistributionWidgetProps> = (
                 >
                   JSON
                 </button>
+                <button
+                  onClick={() => setPreviewFormat('qbasic')}
+                  className={`px-2 py-0.5 rounded border cursor-pointer ${
+                    previewFormat === 'qbasic'
+                      ? 'bg-amber-950/60 text-amber-300 border-amber-700 font-bold'
+                      : 'bg-neutral-900 text-neutral-400 border-neutral-800'
+                  }`}
+                >
+                  QBasic (.BAS)
+                </button>
               </div>
 
               <button
@@ -390,7 +470,9 @@ export const ColorDistributionWidget: React.FC<ColorDistributionWidgetProps> = (
                 ) : (
                   <>
                     <Copy className="w-3 h-3 text-neutral-400" />
-                    <span>Copy {previewFormat.toUpperCase()}</span>
+                    <span>
+                      Copy {previewFormat === 'qbasic' ? 'QBasic' : previewFormat.toUpperCase()}
+                    </span>
                   </>
                 )}
               </button>
@@ -399,7 +481,9 @@ export const ColorDistributionWidget: React.FC<ColorDistributionWidgetProps> = (
             <pre className="bg-black border border-neutral-800 rounded p-2 text-[10px] text-neutral-300 overflow-x-auto max-h-40 leading-relaxed select-all">
               {previewFormat === 'json'
                 ? exportedSnippets.jsonText
-                : exportedSnippets.cssText}
+                : previewFormat === 'css'
+                ? exportedSnippets.cssText
+                : exportedSnippets.qbasicText}
             </pre>
           </div>
         )}
