@@ -7,6 +7,7 @@ import {
   Cpu,
   FileText,
   Layers,
+  HardDrive,
 } from 'lucide-react';
 import { SampleImage } from '../types';
 
@@ -16,6 +17,7 @@ interface HeaderProps {
   selectedSampleId: string;
   onSelectSample: (sample: SampleImage) => void;
   onOpenExportModal: () => void;
+  onOpenBsaveModal: () => void;
   onResetAdjustments: () => void;
   quickDownloadTxt: () => void;
   isBatchMode: boolean;
@@ -29,6 +31,7 @@ export const Header: React.FC<HeaderProps> = ({
   selectedSampleId,
   onSelectSample,
   onOpenExportModal,
+  onOpenBsaveModal,
   onResetAdjustments,
   quickDownloadTxt,
   isBatchMode,
@@ -151,6 +154,16 @@ export const Header: React.FC<HeaderProps> = ({
                 {batchCount}
               </span>
             )}
+          </button>
+
+          <button
+            id="btn-header-bsave"
+            onClick={onOpenBsaveModal}
+            className="px-3 py-1.5 rounded-md bg-neutral-800 hover:bg-neutral-700 text-amber-300 text-xs font-mono flex items-center gap-1.5 border border-neutral-700 hover:border-amber-600/60 transition-colors cursor-pointer"
+            title="QBasic BSAVE 2-bit 320x200 Loader & Saver (.BSV)"
+          >
+            <HardDrive className="w-3.5 h-3.5 text-amber-400" />
+            <span>BSAVE</span>
           </button>
 
           <button

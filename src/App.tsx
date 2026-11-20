@@ -6,6 +6,7 @@ import { LuminanceHistogram } from './components/LuminanceHistogram';
 import { ColorDistributionWidget } from './components/ColorDistributionWidget';
 import { BatchProcessor } from './components/BatchProcessor';
 import { TextExportModal } from './components/TextExportModal';
+import { BsaveModal } from './components/BsaveModal';
 import { CGA_PALETTES } from './constants/palettes';
 import { getSampleImages } from './constants/samples';
 import {
@@ -24,7 +25,11 @@ import {
   renderImageDataToDataUrl,
   downloadFile,
   generateDigitsText,
+  CGA_WIDTH,
+  CGA_HEIGHT,
+  TOTAL_PIXELS,
 } from './utils/cgaDither';
+import { decodeQBasicBsave, digitsToImageData } from './utils/qbasicBsave';
 import { Upload, Terminal, FileDown, Layers } from 'lucide-react';
 
 const DEFAULT_ADJUSTMENTS: ImageAdjustments = {
@@ -51,8 +56,10 @@ export default function App() {
   const [showPixelGrid, setShowPixelGrid] = useState<boolean>(false);
   const [aspectRatio43, setAspectRatio43] = useState<boolean>(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState<boolean>(false);
+  const [isBsaveModalOpen, setIsBsaveModalOpen] = useState<boolean>(false);
 
   const [result, setResult] = useState<ProcessingResult | null>(null);
+  const [bsaveDigits, setBsaveDigits] = useState<Uint8Array | null>(null);
   const [isDraggingOver, setIsDraggingOver] = useState<boolean>(false);
 
   // Batch processing state
@@ -73,6 +80,7 @@ export default function App() {
   // Handle switching sample images
   const handleSelectSample = (sample: SampleImage) => {
     setSelectedSampleId(sample.id);
+    setBsaveDigits(null);
     setIsBatchMode(false);
     const img = new Image();
     img.onload = () => {
@@ -81,8 +89,30 @@ export default function App() {
     img.src = sample.dataUrl;
   };
 
-  // Process image when parameters change
+  // Process image when parameters change (or re-map exact BSAVE digits across palette changes)
   useEffect(() => {
+    if (bsaveDigits) {
+      const counts: [number, number, number, number] = [0, 0, 0, 0];
+      for (let i = 0; i < TOTAL_PIXELS; i++) {
+        counts[bsaveDigits[i] & 3]++;
+      }
+      const percentages: [number, number, number, number] = [
+        Number(((counts[0] / TOTAL_PIXELS) * 100).toFixed(1)),
+        Number(((counts[1] / TOTAL_PIXELS) * 100).toFixed(1)),
+        Number(((counts[2] / TOTAL_PIXELS) * 100).toFixed(1)),
+        Number(((counts[3] / TOTAL_PIXELS) * 100).toFixed(1)),
+      ];
+      setResult({
+        digits: bsaveDigits,
+        width: CGA_WIDTH,
+        height: CGA_HEIGHT,
+        stats: { counts, percentages, totalPixels: TOTAL_PIXELS },
+        imageData: digitsToImageData(bsaveDigits, palette),
+        palette,
+      });
+      return;
+    }
+
     if (!sourceImage) return;
 
     try {
@@ -99,15 +129,27 @@ export default function App() {
     } catch (err) {
       console.error('Error processing CGA dither:', err);
     }
-  }, [sourceImage, palette, algorithm, fitMode, adjustments]);
+  }, [bsaveDigits, sourceImage, palette, algorithm, fitMode, adjustments]);
 
   // Adjustments update handler
   const handleUpdateAdjustments = (partial: Partial<ImageAdjustments>) => {
+    setBsaveDigits(null);
     setAdjustments((prev) => ({ ...prev, ...partial }));
   };
 
   const handleResetAdjustments = () => {
+    setBsaveDigits(null);
     setAdjustments(DEFAULT_ADJUSTMENTS);
+  };
+
+  const handleSelectAlgorithm = (alg: DitherAlgorithm) => {
+    setBsaveDigits(null);
+    setAlgorithm(alg);
+  };
+
+  const handleSelectFitMode = (fit: FitMode) => {
+    setBsaveDigits(null);
+    setFitMode(fit);
   };
 
   // Quick download raw 320x200 digits grid TXT
@@ -120,9 +162,30 @@ export default function App() {
   // Handle user uploaded single image
   const handleImageLoaded = (img: HTMLImageElement) => {
     setSelectedSampleId('');
+    setBsaveDigits(null);
     setIsBatchMode(false);
     setSourceImage(img);
   };
+
+  // Load decoded QBasic BSAVE 2-bit 320x200 digits directly into workspace
+  const handleLoadBsaveIntoCanvas = useCallback(
+    (digits: Uint8Array) => {
+      const imgData = digitsToImageData(digits, palette);
+      const dataUrl = renderImageDataToDataUrl(imgData);
+      const img = new Image();
+      img.onload = () => {
+        setSelectedSampleId('');
+        setIsBatchMode(false);
+        setAlgorithm('none');
+        setFitMode('stretch');
+        setAdjustments(DEFAULT_ADJUSTMENTS);
+        setBsaveDigits(new Uint8Array(digits));
+        setSourceImage(img);
+      };
+      img.src = dataUrl;
+    },
+    [palette]
+  );
 
   // Load multiple files into the Batch Queue
   const handleAddBatchFiles = useCallback(
@@ -266,9 +329,23 @@ export default function App() {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDraggingOver(false);
-    const files = Array.from(e.dataTransfer.files).filter((f) =>
-      f.type.startsWith('image/')
-    );
+    const allFiles = Array.from(e.dataTransfer.files);
+
+    // Support direct drag-and-drop of QBasic BSAVE (.bsv / .cga) files
+    const bsaveFile = allFiles.find((f) => /\.(bsv|cga)$/i.test(f.name));
+    if (bsaveFile && allFiles.length === 1) {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        if (ev.target?.result instanceof ArrayBuffer) {
+          const decoded = decodeQBasicBsave(new Uint8Array(ev.target.result));
+          handleLoadBsaveIntoCanvas(decoded.digits);
+        }
+      };
+      reader.readAsArrayBuffer(bsaveFile);
+      return;
+    }
+
+    const files = allFiles.filter((f) => f.type.startsWith('image/'));
     if (files.length === 0) return;
 
     // Multi-file drop or drop while in Batch Mode feeds the batch queue
@@ -359,6 +436,7 @@ export default function App() {
         selectedSampleId={selectedSampleId}
         onSelectSample={handleSelectSample}
         onOpenExportModal={() => setIsExportModalOpen(true)}
+        onOpenBsaveModal={() => setIsBsaveModalOpen(true)}
         onResetAdjustments={handleResetAdjustments}
         quickDownloadTxt={handleQuickDownloadTxt}
         isBatchMode={isBatchMode}
@@ -449,9 +527,9 @@ export default function App() {
               currentPalette={palette}
               onSelectPalette={setPalette}
               algorithm={algorithm}
-              onSelectAlgorithm={setAlgorithm}
+              onSelectAlgorithm={handleSelectAlgorithm}
               fitMode={fitMode}
-              onSelectFitMode={setFitMode}
+              onSelectFitMode={handleSelectFitMode}
               adjustments={adjustments}
               onChangeAdjustments={handleUpdateAdjustments}
               onResetAdjustments={handleResetAdjustments}
@@ -483,6 +561,15 @@ export default function App() {
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
         result={result}
+      />
+
+      {/* QBasic BSAVE 2-Bit 320x200 Loader & Saver Modal */}
+      <BsaveModal
+        isOpen={isBsaveModalOpen}
+        onClose={() => setIsBsaveModalOpen(false)}
+        result={result}
+        palette={palette}
+        onLoadBsaveIntoCanvas={handleLoadBsaveIntoCanvas}
       />
     </div>
   );
